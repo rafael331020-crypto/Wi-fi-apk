@@ -45,55 +45,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun buildUi() {
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 24)
-        }
-
-        val title = TextView(this).apply {
-            text = "Wi-Fi Scanner — estudo"
-            textSize = 26f
-            setPadding(0, 0, 0, 8)
-        }
-        val subtitle = TextView(this).apply {
-            text = "Análise passiva das redes Wi-Fi anunciadas ao redor"
-            textSize = 14f
-            setPadding(0, 0, 0, 16)
-        }
-        val scanButton = Button(this).apply {
-            text = "🔎 VARRER REDES WI-FI"
-            setOnClickListener { requestAndScan() }
-        }
-        statusText = TextView(this).apply {
-            text = "Pronto para varrer."
-            textSize = 14f
-            setPadding(0, 8, 0, 12)
-        }
-
-        val filterRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(24, 24, 24, 24) }
+        val title = TextView(this).apply { text = "Wi-Fi Scanner — estudo"; textSize = 26f; setPadding(0, 0, 0, 8) }
+        val subtitle = TextView(this).apply { text = "Análise passiva das redes Wi-Fi anunciadas ao redor"; textSize = 14f; setPadding(0, 0, 0, 16) }
+        val scanButton = Button(this).apply { text = "🔎 VARRER REDES WI-FI"; setOnClickListener { requestAndScan() } }
+        statusText = TextView(this).apply { text = "Pronto para varrer."; textSize = 14f; setPadding(0, 8, 0, 12) }
+        val filterRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         listOf("TODAS", "2.4 GHz", "5 GHz", "6 GHz").forEach { band ->
-            val b = Button(this).apply {
-                text = band
-                textSize = 11f
-                setOnClickListener { selectedBand = band; renderResults() }
-            }
+            val b = Button(this).apply { text = band; textSize = 11f; setOnClickListener { selectedBand = band; renderResults() } }
             filterRow.addView(b, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
-
-        resultsLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
+        resultsLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(resultsLayout) }
-
         root.addView(title)
         root.addView(subtitle)
         root.addView(scanButton)
         root.addView(statusText)
         root.addView(filterRow)
-        root.addView(scroll, LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
     }
 
@@ -108,13 +77,9 @@ class MainActivity : AppCompatActivity() {
     private fun requestAndScan() {
         val locationOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val nearbyOk = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
-        if (!locationOk || !nearbyOk) {
-            requestNeededPermissions()
-            return
-        }
+        if (!locationOk || !nearbyOk) { requestNeededPermissions(); return }
         statusText.text = "Varrendo redes..."
-        @Suppress("DEPRECATION")
-        val started = wifi.startScan()
+        @Suppress("DEPRECATION") val started = wifi.startScan()
         if (!started) statusText.text = "O Android recusou a nova varredura. Tente novamente em alguns segundos."
     }
 
@@ -122,16 +87,14 @@ class MainActivity : AppCompatActivity() {
         val filtered = allResults.filter { selectedBand == "TODAS" || bandOf(it.frequency) == selectedBand }
         resultsLayout.removeAllViews()
         statusText.text = if (allResults.isEmpty()) "Nenhuma rede encontrada." else "${filtered.size} rede(s) exibida(s) • ${allResults.size} encontrada(s) • ${now()}"
-        filtered.forEachIndexed { index, r ->
-            resultsLayout.addView(networkView(r, index + 1))
-        }
+        filtered.forEachIndexed { index, r -> resultsLayout.addView(networkView(r, index + 1)) }
     }
 
     private fun networkView(r: ScanResult, position: Int): TextView {
         val ssid = r.SSID.ifBlank { "(rede oculta)" }
         val band = bandOf(r.frequency)
         val quality = signalQuality(r.level)
-        val channelWidth = channelWidth(r)
+        val width = channelWidth(r)
         val standard = wifiStandard(r)
         val bssid = r.BSSID.ifBlank { "—" }
         val security = securityType(r)
@@ -142,40 +105,26 @@ class MainActivity : AppCompatActivity() {
             append("📶 Sinal: ${r.level} dBm ($quality%) — ${signalLabel(r.level)}\n")
             append("📻 Frequência: ${r.frequency} MHz ($band)\n")
             append("📡 Canal: ${channel(r.frequency)}\n")
-            append("↔️ Largura do canal: $channelWidth\n")
+            append("↔️ Largura do canal: $width\n")
             append("⚙️ Padrão Wi-Fi: $standard\n")
             append("🆔 BSSID: $bssid\n")
             append("🏷️ OUI: ${bssid.take(8).ifBlank { "—" }}\n")
             append("🕒 Leitura: ${now()}")
         }
-        return TextView(this).apply {
-            this.text = text
-            textSize = 15f
-            setPadding(18, 18, 18, 18)
-            setOnClickListener { showDetails(r) }
-        }
+        return TextView(this).apply { this.text = text; textSize = 15f; setPadding(18, 18, 18, 18); setOnClickListener { showDetails(r) } }
     }
 
     private fun showDetails(r: ScanResult) {
         val details = buildString {
             append("${r.SSID.ifBlank { "(rede oculta)" }}\n\n")
-            append("BSSID: ${r.BSSID}\n")
-            append("Segurança: ${securityType(r)}\n")
-            append("Sinal: ${r.level} dBm\n")
-            append("Qualidade estimada: ${signalQuality(r.level)}%\n")
-            append("Frequência: ${r.frequency} MHz\n")
-            append("Banda: ${bandOf(r.frequency)}\n")
-            append("Canal: ${channel(r.frequency)}\n")
-            append("Largura do canal: ${channelWidth(r)}\n")
-            append("Padrão Wi-Fi: ${wifiStandard(r)}\n")
+            append("BSSID: ${r.BSSID}\nSegurança: ${securityType(r)}\nSinal: ${r.level} dBm\n")
+            append("Qualidade estimada: ${signalQuality(r.level)}%\nFrequência: ${r.frequency} MHz\n")
+            append("Banda: ${bandOf(r.frequency)}\nCanal: ${channel(r.frequency)}\n")
+            append("Largura do canal: ${channelWidth(r)}\nPadrão Wi-Fi: ${wifiStandard(r)}\n")
             append("Capabilities: ${r.capabilities.ifBlank { "—" }}\n\n")
             append("Os dados são obtidos apenas do anúncio público da rede pelo Android. O aplicativo não tenta conectar, descobrir senhas ou acessar a rede.")
         }
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Detalhes da rede")
-            .setMessage(details)
-            .setPositiveButton("OK", null)
-            .show()
+        android.app.AlertDialog.Builder(this).setTitle("Detalhes da rede").setMessage(details).setPositiveButton("OK", null).show()
     }
 
     private fun securityType(r: ScanResult): String {
@@ -206,14 +155,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signalQuality(dbm: Int): Int = ((dbm + 100) * 2).coerceIn(0, 100)
-
-    private fun signalLabel(dbm: Int): String = when {
-        dbm >= -50 -> "Excelente"
-        dbm >= -60 -> "Muito bom"
-        dbm >= -67 -> "Bom"
-        dbm >= -75 -> "Regular"
-        else -> "Fraco"
-    }
+    private fun signalLabel(dbm: Int): String = when { dbm >= -50 -> "Excelente"; dbm >= -60 -> "Muito bom"; dbm >= -67 -> "Bom"; dbm >= -75 -> "Regular"; else -> "Fraco" }
 
     private fun channelWidth(r: ScanResult): String = when (r.channelWidth) {
         ScanResult.CHANNEL_WIDTH_20MHZ -> "20 MHz"
@@ -237,8 +179,5 @@ class MainActivity : AppCompatActivity() {
 
     private fun now(): String = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
 
-    override fun onDestroy() {
-        unregisterReceiver(receiver)
-        super.onDestroy()
-    }
+    override fun onDestroy() { unregisterReceiver(receiver); super.onDestroy() }
 }
