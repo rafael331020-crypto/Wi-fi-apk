@@ -31,8 +31,14 @@ class MainActivity : AppCompatActivity() {
 
     private val receiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            allResults = wifi.scanResults.sortedByDescending { it.level }
-            renderResults()
+            try {
+                allResults = wifi.scanResults.sortedByDescending { it.level }
+                renderResults()
+            } catch (_: SecurityException) {
+                statusText.text = "Permissão de Wi-Fi/localização não disponível."
+            } catch (_: Exception) {
+                statusText.text = "Não foi possível ler os resultados da varredura."
+            }
         }
     }
 
@@ -85,85 +91,70 @@ class MainActivity : AppCompatActivity() {
         }
         resultsLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val scroll = ScrollView(this).apply { addView(resultsLayout) }
-
         root.addView(title)
         root.addView(subtitle)
         root.addView(scanButton)
         root.addView(statusText)
         root.addView(filterRow)
-        val scrollParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT,
-            0
-        ).apply { weight = 1f }
+        val scrollParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0).apply { weight = 1f }
         root.addView(scroll, scrollParams)
         setContentView(root)
     }
 
     private fun requestNeededPermissions() {
         val permissions = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= 33) {
-            permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-        }
+        if (Build.VERSION.SDK_INT >= 33) permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
         permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
-        val missing = permissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }
-        if (missing.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 10)
+        val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isNotEmpty()) ActivityCompat.requestPermissions(this, missing.toTypedArray(), 10)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 10 && grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+            statusText.text = "Conceda as permissões de Wi-Fi e localização para fazer a varredura."
         }
     }
 
     private fun requestAndScan() {
-        val locationOk = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_FINE_LOCATION
-        ) == PackageManager.PERMISSION_GRANTED
-        val nearbyOk = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(
-            this, Manifest.permission.NEARBY_WIFI_DEVICES
-        ) == PackageManager.PERMISSION_GRANTED
+        val locationOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val nearbyOk = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
         if (!locationOk || !nearbyOk) {
+            statusText.text = "Solicitando permissões..."
             requestNeededPermissions()
             return
         }
-        statusText.text = "Varrendo redes..."
-        @Suppress("DEPRECATION")
-        val started = wifi.startScan()
-        if (!started) {
-            statusText.text = "O Android recusou a nova varredura. Tente novamente em alguns segundos."
+        try {
+            statusText.text = "Varrendo redes..."
+            @Suppress("DEPRECATION")
+            val started = wifi.startScan()
+            if (!started) statusText.text = "O Android recusou a nova varredura. Tente novamente em alguns segundos."
+        } catch (_: SecurityException) {
+            statusText.text = "Permissão de Wi-Fi negada pelo Android. Verifique as permissões do app."
+        } catch (_: Exception) {
+            statusText.text = "Erro ao iniciar a varredura. Tente novamente."
         }
     }
 
     private fun renderResults() {
-        val filtered = allResults.filter {
-            selectedBand == "TODAS" || bandOf(it.frequency) == selectedBand
-        }
+        val filtered = allResults.filter { selectedBand == "TODAS" || bandOf(it.frequency) == selectedBand }
         resultsLayout.removeAllViews()
-        statusText.text = if (allResults.isEmpty()) {
-            "Nenhuma rede encontrada."
-        } else {
-            "${filtered.size} rede(s) exibida(s) • ${allResults.size} encontrada(s) • ${now()}"
-        }
-        filtered.forEachIndexed { index, r ->
-            resultsLayout.addView(networkView(r, index + 1))
-        }
+        statusText.text = if (allResults.isEmpty()) "Nenhuma rede encontrada." else "${filtered.size} rede(s) exibida(s) • ${allResults.size} encontrada(s) • ${now()}"
+        filtered.forEachIndexed { index, r -> resultsLayout.addView(networkView(r, index + 1)) }
     }
 
     private fun networkView(r: ScanResult, position: Int): TextView {
         val ssid = r.SSID.ifBlank { "(rede oculta)" }
-        val band = bandOf(r.frequency)
-        val quality = signalQuality(r.level)
-        val width = channelWidth(r)
-        val standard = wifiStandard(r)
         val bssid = r.BSSID.ifBlank { "—" }
-        val security = securityType(r)
         val text = buildString {
             append("#$position  $ssid\n")
             append("────────────────────────\n")
-            append("🔐 Segurança: $security\n")
-            append("📶 Sinal: ${r.level} dBm ($quality%) — ${signalLabel(r.level)}\n")
-            append("📻 Frequência: ${r.frequency} MHz ($band)\n")
+            append("🔐 Segurança: ${securityType(r)}\n")
+            append("📶 Sinal: ${r.level} dBm (${signalQuality(r.level)}%) — ${signalLabel(r.level)}\n")
+            append("📻 Frequência: ${r.frequency} MHz (${bandOf(r.frequency)})\n")
             append("📡 Canal: ${channel(r.frequency)}\n")
-            append("↔️ Largura do canal: $width\n")
-            append("⚙️ Padrão Wi-Fi: $standard\n")
+            append("↔️ Largura do canal: ${channelWidth(r)}\n")
+            append("⚙️ Padrão Wi-Fi: ${wifiStandard(r)}\n")
             append("🆔 BSSID: $bssid\n")
             append("🏷️ OUI: ${bssid.take(8).ifBlank { "—" }}\n")
             append("🕒 Leitura: ${now()}")
@@ -186,11 +177,7 @@ class MainActivity : AppCompatActivity() {
             append("Capabilities: ${r.capabilities.ifBlank { "—" }}\n\n")
             append("Os dados são obtidos apenas do anúncio público da rede pelo Android. O aplicativo não tenta conectar, descobrir senhas ou acessar a rede.")
         }
-        android.app.AlertDialog.Builder(this)
-            .setTitle("Detalhes da rede")
-            .setMessage(details)
-            .setPositiveButton("OK", null)
-            .show()
+        android.app.AlertDialog.Builder(this).setTitle("Detalhes da rede").setMessage(details).setPositiveButton("OK", null).show()
     }
 
     private fun securityType(r: ScanResult): String {
@@ -221,7 +208,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signalQuality(dbm: Int): Int = ((dbm + 100) * 2).coerceIn(0, 100)
-
     private fun signalLabel(dbm: Int): String = when {
         dbm >= -50 -> "Excelente"
         dbm >= -60 -> "Muito bom"
@@ -248,14 +234,12 @@ class MainActivity : AppCompatActivity() {
             ScanResult.WIFI_STANDARD_11BE -> "802.11be (Wi-Fi 7)"
             else -> "Desconhecido"
         }
-    } else {
-        "Não disponível nesta versão do Android"
-    }
+    } else "Não disponível nesta versão do Android"
 
     private fun now(): String = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
 
     override fun onDestroy() {
-        unregisterReceiver(receiver)
+        try { unregisterReceiver(receiver) } catch (_: Exception) { }
         super.onDestroy()
     }
 }
