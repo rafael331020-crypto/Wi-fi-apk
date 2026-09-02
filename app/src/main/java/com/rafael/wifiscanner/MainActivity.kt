@@ -35,9 +35,9 @@ class MainActivity : AppCompatActivity() {
                 allResults = wifi.scanResults.sortedByDescending { it.level }
                 renderResults()
             } catch (_: SecurityException) {
-                statusText.text = "Permissão de Wi-Fi/localização não disponível."
+                statusText.text = "Permissão não disponível para ler a varredura."
             } catch (_: Exception) {
-                statusText.text = "Não foi possível ler os resultados da varredura."
+                statusText.text = "Não foi possível ler os resultados."
             }
         }
     }
@@ -56,21 +56,25 @@ class MainActivity : AppCompatActivity() {
             setPadding(24, 24, 24, 24)
         }
         val title = TextView(this).apply {
-            text = "Wi-Fi Scanner — estudo"
-            textSize = 26f
-            setPadding(0, 0, 0, 8)
+            text = "Wi-Fi Security Audit — estudo"
+            textSize = 25f
+            setPadding(0, 0, 0, 6)
         }
         val subtitle = TextView(this).apply {
-            text = "Análise passiva das redes Wi-Fi anunciadas ao redor"
+            text = "Auditoria defensiva e passiva das redes anunciadas"
             textSize = 14f
-            setPadding(0, 0, 0, 16)
+            setPadding(0, 0, 0, 12)
         }
         val scanButton = Button(this).apply {
-            text = "🔎 VARRER REDES WI-FI"
+            text = "🔎 VARRER E AUDITAR"
             setOnClickListener { requestAndScan() }
         }
+        val reportButton = Button(this).apply {
+            text = "🛡️ RESUMO DE SEGURANÇA"
+            setOnClickListener { showAuditSummary() }
+        }
         statusText = TextView(this).apply {
-            text = "Pronto para varrer."
+            text = "Pronto. Use somente em redes que você possui ou está autorizado a avaliar."
             textSize = 14f
             setPadding(0, 8, 0, 12)
         }
@@ -82,10 +86,7 @@ class MainActivity : AppCompatActivity() {
             val b = Button(this).apply {
                 text = band
                 textSize = 11f
-                setOnClickListener {
-                    selectedBand = band
-                    renderResults()
-                }
+                setOnClickListener { selectedBand = band; renderResults() }
             }
             filterRow.addView(b, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         }
@@ -94,10 +95,10 @@ class MainActivity : AppCompatActivity() {
         root.addView(title)
         root.addView(subtitle)
         root.addView(scanButton)
+        root.addView(reportButton)
         root.addView(statusText)
         root.addView(filterRow)
-        val scrollParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0).apply { weight = 1f }
-        root.addView(scroll, scrollParams)
+        root.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0).apply { weight = 1f })
         setContentView(root)
     }
 
@@ -112,20 +113,16 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 10 && grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
-            statusText.text = "Conceda as permissões de Wi-Fi e localização para fazer a varredura."
+            statusText.text = "Conceda as permissões de Wi-Fi/localização para auditar."
         }
     }
 
     private fun requestAndScan() {
         val locationOk = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val nearbyOk = Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(this, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
-        if (!locationOk || !nearbyOk) {
-            statusText.text = "Solicitando permissões..."
-            requestNeededPermissions()
-            return
-        }
+        if (!locationOk || !nearbyOk) { statusText.text = "Solicitando permissões..."; requestNeededPermissions(); return }
         try {
-            statusText.text = "Varrendo redes..."
+            statusText.text = "Varrendo e avaliando configurações anunciadas..."
             @Suppress("DEPRECATION")
             val started = wifi.startScan()
             if (!started) statusText.text = "O Android recusou a nova varredura. Tente novamente em alguns segundos."
@@ -144,20 +141,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun networkView(r: ScanResult, position: Int): TextView {
+        val audit = audit(r)
         val ssid = r.SSID.ifBlank { "(rede oculta)" }
-        val bssid = r.BSSID.ifBlank { "—" }
         val text = buildString {
             append("#$position  $ssid\n")
             append("────────────────────────\n")
+            append("🛡️ Risco: ${audit.level}\n")
             append("🔐 Segurança: ${securityType(r)}\n")
-            append("📶 Sinal: ${r.level} dBm (${signalQuality(r.level)}%) — ${signalLabel(r.level)}\n")
-            append("📻 Frequência: ${r.frequency} MHz (${bandOf(r.frequency)})\n")
-            append("📡 Canal: ${channel(r.frequency)}\n")
-            append("↔️ Largura do canal: ${channelWidth(r)}\n")
-            append("⚙️ Padrão Wi-Fi: ${wifiStandard(r)}\n")
-            append("🆔 BSSID: $bssid\n")
-            append("🏷️ OUI: ${bssid.take(8).ifBlank { "—" }}\n")
-            append("🕒 Leitura: ${now()}")
+            append("⚠️ Alertas: ${audit.alerts.size}\n")
+            append("📶 Sinal: ${r.level} dBm (${signalQuality(r.level)}%)\n")
+            append("📻 ${r.frequency} MHz • ${bandOf(r.frequency)} • canal ${channel(r.frequency)}\n")
+            append("↔️ Largura: ${channelWidth(r)} • ⚙️ ${wifiStandard(r)}\n")
+            append("🆔 BSSID: ${r.BSSID}\n")
+            append("🕒 ${now()}")
         }
         return TextView(this).apply {
             this.text = text
@@ -167,28 +163,75 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private data class Audit(val level: String, val alerts: List<String>, val recommendations: List<String>)
+
+    private fun audit(r: ScanResult): Audit {
+        val caps = r.capabilities.uppercase()
+        val alerts = mutableListOf<String>()
+        val recommendations = mutableListOf<String>()
+        if ("WEP" in caps) { alerts.add("WEP legado"); recommendations.add("Migrar para WPA3 ou WPA2-AES") }
+        if (caps.contains("TKIP")) { alerts.add("TKIP anunciado"); recommendations.add("Preferir AES/CCMP") }
+        if ("WPS" in caps) { alerts.add("WPS anunciado"); recommendations.add("Desativar WPS se não for necessário") }
+        if (securityType(r).startsWith("Aberta")) { alerts.add("Rede aberta"); recommendations.add("Usar WPA2-AES ou WPA3") }
+        if ("WPA-" in caps && !caps.contains("RSN")) { alerts.add("WPA legado"); recommendations.add("Atualizar para WPA2/WPA3") }
+        if (alerts.isEmpty()) {
+            recommendations.add(if ("SAE" in caps) "Manter WPA3/SAE e firmware atualizado" else "Preferir WPA3/SAE ou WPA2-AES")
+        }
+        val level = when {
+            alerts.any { it.contains("WEP") || it.contains("Rede aberta") } -> "ALTO"
+            alerts.isNotEmpty() -> "MÉDIO"
+            else -> "BAIXO"
+        }
+        return Audit(level, alerts, recommendations)
+    }
+
     private fun showDetails(r: ScanResult) {
+        val a = audit(r)
         val details = buildString {
             append("${r.SSID.ifBlank { "(rede oculta)" }}\n\n")
-            append("BSSID: ${r.BSSID}\nSegurança: ${securityType(r)}\nSinal: ${r.level} dBm\n")
-            append("Qualidade estimada: ${signalQuality(r.level)}%\nFrequência: ${r.frequency} MHz\n")
-            append("Banda: ${bandOf(r.frequency)}\nCanal: ${channel(r.frequency)}\n")
-            append("Largura do canal: ${channelWidth(r)}\nPadrão Wi-Fi: ${wifiStandard(r)}\n")
-            append("Capabilities: ${r.capabilities.ifBlank { "—" }}\n\n")
-            append("Os dados são obtidos apenas do anúncio público da rede pelo Android. O aplicativo não tenta conectar, descobrir senhas ou acessar a rede.")
+            append("NÍVEL DE RISCO: ${a.level}\n\n")
+            append("Segurança: ${securityType(r)}\n")
+            append("Capabilities anunciadas: ${r.capabilities.ifBlank { "—" }}\n")
+            append("Sinal: ${r.level} dBm (${signalQuality(r.level)}%)\n")
+            append("Frequência: ${r.frequency} MHz\nBanda: ${bandOf(r.frequency)}\nCanal: ${channel(r.frequency)}\n")
+            append("Largura: ${channelWidth(r)}\nPadrão: ${wifiStandard(r)}\nBSSID: ${r.BSSID}\n\n")
+            append("ALERTAS\n")
+            if (a.alerts.isEmpty()) append("Nenhum alerta passivo identificado.\n") else a.alerts.forEach { append("• $it\n") }
+            append("\nRECOMENDAÇÕES\n")
+            a.recommendations.forEach { append("• $it\n") }
+            append("\nLimitação: a auditoria usa somente informações públicas anunciadas no scan do Android. Ela não testa senhas, não tenta entrar na rede, não explora falhas e não confirma vulnerabilidades do roteador.")
         }
-        android.app.AlertDialog.Builder(this).setTitle("Detalhes da rede").setMessage(details).setPositiveButton("OK", null).show()
+        android.app.AlertDialog.Builder(this).setTitle("Auditoria defensiva").setMessage(details).setPositiveButton("OK", null).show()
+    }
+
+    private fun showAuditSummary() {
+        if (allResults.isEmpty()) {
+            android.app.AlertDialog.Builder(this).setTitle("Resumo de segurança").setMessage("Faça uma varredura primeiro.").setPositiveButton("OK", null).show(); return
+        }
+        val audits = allResults.map { audit(it) }
+        val high = audits.count { it.level == "ALTO" }
+        val medium = audits.count { it.level == "MÉDIO" }
+        val low = audits.count { it.level == "BAIXO" }
+        val text = buildString {
+            append("Redes avaliadas: ${allResults.size}\n\n")
+            append("🔴 Alto: $high\n🟠 Médio: $medium\n🟢 Baixo: $low\n\n")
+            append("PRIORIDADES\n")
+            if (high > 0) append("• Corrija primeiro redes abertas ou com WEP.\n")
+            if (medium > 0) append("• Revise WPS, TKIP e protocolos legados.\n")
+            if (high == 0 && medium == 0) append("• Nenhum alerta passivo relevante foi identificado.\n")
+            append("\nPara sua própria rede, confirme as configurações diretamente no roteador e mantenha firmware atualizado.")
+        }
+        android.app.AlertDialog.Builder(this).setTitle("Resumo de segurança").setMessage(text).setPositiveButton("OK", null).show()
     }
 
     private fun securityType(r: ScanResult): String {
         val caps = r.capabilities.uppercase()
         return when {
-            "SAE" in caps && ("RSN" in caps || "WPA" in caps) -> "WPA3/SAE (ou modo misto)"
+            "SAE" in caps && "RSN" in caps -> "WPA3/SAE (ou modo misto)"
             "OWE" in caps -> "OWE / Enhanced Open"
-            "WPA3" in caps -> "WPA3"
-            "RSN" in caps -> "WPA2/WPA"
+            "RSN" in caps -> "WPA2/WPA3"
             "WEP" in caps -> "WEP (legado)"
-            "WPA" in caps -> "WPA"
+            "WPA" in caps -> "WPA legado"
             else -> "Aberta / sem autenticação anunciada"
         }
     }
@@ -208,14 +251,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun signalQuality(dbm: Int): Int = ((dbm + 100) * 2).coerceIn(0, 100)
-    private fun signalLabel(dbm: Int): String = when {
-        dbm >= -50 -> "Excelente"
-        dbm >= -60 -> "Muito bom"
-        dbm >= -67 -> "Bom"
-        dbm >= -75 -> "Regular"
-        else -> "Fraco"
-    }
-
     private fun channelWidth(r: ScanResult): String = when (r.channelWidth) {
         ScanResult.CHANNEL_WIDTH_20MHZ -> "20 MHz"
         ScanResult.CHANNEL_WIDTH_40MHZ -> "40 MHz"
@@ -224,18 +259,14 @@ class MainActivity : AppCompatActivity() {
         ScanResult.CHANNEL_WIDTH_80MHZ_PLUS_MHZ -> "80+80 MHz"
         else -> "Não informado"
     }
-
-    private fun wifiStandard(r: ScanResult): String = if (Build.VERSION.SDK_INT >= 30) {
-        when (r.wifiStandard) {
-            ScanResult.WIFI_STANDARD_LEGACY -> "Legado"
-            ScanResult.WIFI_STANDARD_11N -> "802.11n (Wi-Fi 4)"
-            ScanResult.WIFI_STANDARD_11AC -> "802.11ac (Wi-Fi 5)"
-            ScanResult.WIFI_STANDARD_11AX -> "802.11ax (Wi-Fi 6/6E)"
-            ScanResult.WIFI_STANDARD_11BE -> "802.11be (Wi-Fi 7)"
-            else -> "Desconhecido"
-        }
-    } else "Não disponível nesta versão do Android"
-
+    private fun wifiStandard(r: ScanResult): String = if (Build.VERSION.SDK_INT >= 30) when (r.wifiStandard) {
+        ScanResult.WIFI_STANDARD_LEGACY -> "Legado"
+        ScanResult.WIFI_STANDARD_11N -> "Wi-Fi 4"
+        ScanResult.WIFI_STANDARD_11AC -> "Wi-Fi 5"
+        ScanResult.WIFI_STANDARD_11AX -> "Wi-Fi 6/6E"
+        ScanResult.WIFI_STANDARD_11BE -> "Wi-Fi 7"
+        else -> "Desconhecido"
+    } else "Não disponível"
     private fun now(): String = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
 
     override fun onDestroy() {
