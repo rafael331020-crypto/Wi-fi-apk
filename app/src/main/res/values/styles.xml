@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.WiFiScanner" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+    </style>
+</resources>
